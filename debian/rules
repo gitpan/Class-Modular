@@ -32,19 +32,18 @@ build: build-stamp
 build-stamp:
 	dh_testdir
 
-	# Add commands to compile the package here
 	$(PERL) Makefile.PL INSTALLDIRS=vendor
-	$(MAKE) OPTIMIZE="$(CFLAGS)"
-	
+	$(MAKE)
+	$(MAKE) test
+
 	touch build-stamp
 
 clean:
 	dh_testdir
 	dh_testroot
 
-	# Add commands to clean up after the build process here
 	-$(MAKE) distclean
-	
+
 	dh_clean build-stamp install-stamp
 
 install: install-stamp
@@ -53,9 +52,8 @@ install-stamp: build-stamp
 	dh_testroot
 	dh_clean -k
 
-	#$(MAKE) test
-	$(MAKE) install DESTDIR=$(TMP) PREFIX=/usr
-	
+	$(MAKE) install PREFIX=$(TMP)/usr
+
 	# As this is a architecture independent package, we are not supposed to install
 	# stuff to /usr/lib. MakeMaker creates the dirs, we delete them from the deb:
 	rmdir --ignore-fail-on-non-empty --parents $(TMP)/usr/lib/perl5
@@ -71,8 +69,8 @@ binary-indep: build install
 #	dh_installcron
 #	dh_installmenu
 #	dh_installexamples
-	dh_installdocs .svn/README.txt lib/.svn/README.txt lib/Class/.svn/README.txt t/.svn/README.txt
-	dh_installchangelogs 
+	dh_installdocs
+	dh_installchangelogs CHANGES
 	dh_perl
 	dh_link
 	dh_strip

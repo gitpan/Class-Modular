@@ -1,0 +1,7 @@
+v0.3 - Tuesday, October 19, 2004 19:28:22 PDT
+ * Fix debian directory to actually build this package properly
+ * Add Safe support and allow Storable to use Deparse to handle CODE references in clones
+ * Rearange function order so that the documentation is in a sane order in Class::Modular
+ * Add USE_SAFE variable to control whether Safe is used
+ * Improve documentation
+ * Fixes to tests

@@ -5,14 +5,14 @@
 # $Id: $
 
 
-use Test::Simple tests => 7;
+use Test::Simple tests => 9;
 
 use UNIVERSAL;
 
 my $destroy_hit = 0;
 
 {
-     # Fool require.
+     # Foo require.
      $INC{'Foo.pm'} = '1';
      package Foo;
 
@@ -32,21 +32,39 @@ my $destroy_hit = 0;
      }
 }
 
+{
+     # Bar require.
+     $INC{'Bar.pm'} = '1';
+     package Bar;
+
+     use base qw(Class::Modular);
+     use constant METHODS => 'bleh';
+
+     sub bleh {
+	  return 1;
+     }
+
+     sub _methods {
+          return qw(bleh);
+     }
+}
+
+
+
 
 my $foo = new Foo(qw(bar baz));
 
 # 1: test new
-ok(defined $foo and ref($foo) eq 'Foo' and UNIVERSAL::isa($foo,'Class::Modular'), 'new() works');
+ok(defined $foo and UNIVERSAL::isa($foo,'Class::Modular'), 'new() works');
 
-$foo->load('Foo');
 # 2: test load()
 ok(exists $foo->{__class_modular}{_subclasses}{Foo}, 'load() works');
 # 3: test AUTOLOAD
 ok($foo->blah, 'AUTOLOAD works');
 
 # Check override
-#$foo->override('blah',sub{return 2});
-#ok($foo->blah == 2, 'override() works');
+$foo->override('blah',sub{return 2});
+ok($foo->blah == 2, 'override() works');
 
 # Check can
 # 5: Check can
@@ -61,3 +79,10 @@ ok($foo->handledby('blah') eq 'Foo', 'handledby() works');
 # Check DESTROY
 undef $foo;
 ok($destroy_hit,'DESTROY called _destroy');
+
+# Check non-existant _destroy doesn't cause a failure
+
+eval {my $bar = new Bar();
+      undef $bar;
+ };
+ok($@ eq '','Non existant _destroy not a problem');
