@@ -1,3 +1,9 @@
+libclass-modular-perl (0.4-1) unstable; urgency=low
+
+  * New Upstream release
+
+ -- Don Armstrong <don@donarmstrong.com>  Sat, 22 Jan 2005 13:31:30 -0800
+
 libclass-modular-perl (0.3-1) unstable; urgency=low
 
   * New upstream release

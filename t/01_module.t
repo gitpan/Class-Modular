@@ -1,3 +1,4 @@
+# -*- mode: cperl;-*-
 # This file is part of Class::Modular and is released under the terms
 # of the GPL version 2, or any later version at your option. See the
 # file README and COPYING for more information.
@@ -5,9 +6,11 @@
 # $Id: $
 
 
-use Test::Simple tests => 9;
+use Test::More tests => 11;
 
 use UNIVERSAL;
+
+use_ok('Class::Modular');
 
 my $destroy_hit = 0;
 
@@ -16,15 +19,15 @@ my $destroy_hit = 0;
      $INC{'Foo.pm'} = '1';
      package Foo;
 
+     use vars qw(@METHODS);
+     BEGIN {
+	  @METHODS = qw(blah);
+     }
+
      use base qw(Class::Modular);
-     use constant METHODS => 'blah';
 
      sub blah {
 	  return 1;
-     }
-
-     sub _methods {
-          return qw(blah);
      }
 
      sub _destroy{
@@ -38,7 +41,6 @@ my $destroy_hit = 0;
      package Bar;
 
      use base qw(Class::Modular);
-     use constant METHODS => 'bleh';
 
      sub bleh {
 	  return 1;
@@ -58,7 +60,7 @@ my $foo = new Foo(qw(bar baz));
 ok(defined $foo and UNIVERSAL::isa($foo,'Class::Modular'), 'new() works');
 
 # 2: test load()
-ok(exists $foo->{__class_modular}{_subclasses}{Foo}, 'load() works');
+ok($foo->is_loaded('Foo'), 'load and is_loaded work');
 # 3: test AUTOLOAD
 ok($foo->blah, 'AUTOLOAD works');
 
@@ -86,3 +88,7 @@ eval {my $bar = new Bar();
       undef $bar;
  };
 ok($@ eq '','Non existant _destroy not a problem');
+
+# Check _methods way of defining methods
+my $bar = new Bar;
+ok($bar->bleh, '_methods function works to define methods');

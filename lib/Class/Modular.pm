@@ -1,8 +1,8 @@
 # This module is part of DA, Don Armstrong's Modules, and is released
 # under the terms of the GPL version 2, or any later version. See the
 # file README and COPYING for more information.
-# Copyright 2003,2004 by Don Armstrong <don@donarmstrong.com>.
-# $Id: Modular.pm 33 2004-10-24 09:36:13Z don $
+# Copyright 2003,2005 by Don Armstrong <don@donarmstrong.com>.
+# $Id: Modular.pm 42 2005-01-22 21:40:38Z don $
 
 package Class::Modular;
 
@@ -16,11 +16,12 @@ Class::Modular -- Modular class generation superclass
 
      use base qw(Class::Modular);
 
-     sub new {
-	  my $class = shift;
-          my $self = bless {}, ref($class) || $class;
-	  $self->SUPER::_init(@_);
-	  return $self;
+     use vars (@METHODS);
+     BEGIN{@METHODS=qw(blah)};
+
+     sub blah{
+         my $self = shift;
+         return 1;
      }
 
      [...]
@@ -41,7 +42,7 @@ Class::Modular -- Modular class generation superclass
 
      $foo = new Foo;
      $foo->load('Bar');
-     $foo->method_that_bar_provides;
+     $foo->blah && $foo->method_that_bar_provides;
 
 
 =head1 DESCRIPTION
@@ -71,8 +72,8 @@ use Storable qw(dclone); # Used for deep copying objects
 use Safe; # Use Safe when we are dealing with coderefs
 
 BEGIN{
-     $VERSION = q$0.03$;
-     ($REVISION) = q$LastChangedRevision: 33 $ =~ /\$LastChangedRevision:\s+([^\s+])/;
+     $VERSION = q$0.04$;
+     ($REVISION) = q$LastChangedRevision: 42 $ =~ /\$LastChangedRevision:\s+([^\s+])/;
      $DEBUG = 0 unless defined $DEBUG;
      $USE_SAFE = 1 unless defined $USE_SAFE;
 }
@@ -87,18 +88,42 @@ our $AUTOLOAD;
 
 =head2 load
 
-     $db->load('FOO::Subclass');
+     $cm->load('Subclass');
+     # or
+     $cm->load('Subclass',$options);
 
-Loads the named subclass into this object if the named subclass has
+Loads the named Subclass into this object if the named Subclass has
 not been loaded.
 
-The options scalar is passed to $subclass::_methods when determining
-which methods should be added using _addmethods.
-
-The subclasses _init method is called right after methods are loaded.
-
 If debugging is enabled, will warn about loading already loaded
-subclasses.
+subclasses. Use C<$cm->is_loaded('Subclass')> to avoid these warnings.
+
+=head3 Methods
+
+If the subclass has a C<_methods> function (or at least,
+UNIVERSAL::can thinks it does), C<_methods> is called to return a LIST
+of methods that the subclass wishes to handle. The L<Class::Modular>
+object and the options SCALAR are passed to the _methods function.
+
+If the subclass does not have a C<_methods> function, then the array
+C<@{"${subclass}::METHODS"}> is used to determine the methods that the
+subclass will handle.
+
+=head3 _init and required submodules
+
+If the subclass has a C<_init> function (or at least, UNIVERSAL::can
+thinks it does), C<_init> is called right after the module is
+loaded. The L<Class::Modular> object and the options SCALAR are passed
+to the _methods function. Typical uses for this call are to load other
+required submodules.
+
+As this is the most common thing to do in C<_init>, if a subclass
+doesn't have one, then the array C<@{"${subclass}::SUB_MODULES"}> is
+used to determine the subclass that need to be loaded:
+
+    for my $module (@{"${subclass}::SUB_MODULES"}) {
+	 $self->is_loaded($module) || $self->load($module);
+    }
 
 =cut
 
@@ -116,17 +141,53 @@ sub load($$;$) {
 	       # for a non method is deprecated. Bite me.
 	       no warnings 'deprecated';
 	       eval "require $subclass" or die $@;
-	       $self->_addmethods($subclass,&{"${subclass}::_methods"}($self,$options));
-	       &{"${subclass}::_init"}($self);
+	       # We should read @METHODS and @SUB_MODULES and just do
+	       # the right thing if at all possible.
+	       my $methods = can($subclass,"_methods");
+	       if (defined $methods) {
+		    $self->_addmethods($subclass,&$methods($self,$options));
+	       }
+	       else {
+		    $self->_addmethods($subclass,@{"${subclass}::METHODS"})
+	       }
+	       my $init = can($subclass,"_init");
+	       if (defined $init) {
+		    &$init($self,$options);
+	       }
+	       else {
+		    for my $module (@{"${subclass}::SUB_MODULES"}) {
+			 $self->is_loaded($module) || $self->load($module);
+		    }
+	       }
 	  };
-	  die $@ if $@ and $@ !~ /^Undefined function ${subclass}::_init at [^\n]*$/;
-	  $self->{$cm}{_subclasses}{$subclass} = {};
+	  die $@ if $@;
+	  $self->{$cm}{_subclasses}{$subclass} ||= {};
      }
      else {
 	  carp "Not reloading subclass $subclass" if $DEBUG;
      }
 }
 
+=head2 is_loaded
+
+     if ($cm->is_loaded('Subclass')) {
+           # do something
+     }
+
+Tests to see if the named subclass is loaded.
+
+Returns 1 if the subclass has been loaded, 0 otherwise.
+
+=cut
+
+sub is_loaded($$){
+     my ($self,$subclass) = @_;
+
+     # An entry will exist in the _subclasses hashref only if 
+     return 1 if exists $self->{$cm}{_subclasses}{$subclass}
+	  and defined $self->{$cm}{_subclasses}{$subclass};
+     return 0;
+}
 
 =head2 override
 
@@ -242,6 +303,26 @@ sub can{
 	  return UNIVERSAL::can($self,$method);
      }
 }
+
+=head2 isa
+
+     $obj->isa('TYPE');
+     Class::Modular->isa('TYPE');
+
+Replaces UNIVERSAL's isa method with one that knows which modules have
+been loaded into this object. Calls C<is_loaded> with the type passed,
+then calls UNIVERSAL::isa if the type isn't loaded.
+
+=cut
+
+sub isa{
+     my ($self,$type) = @_;
+
+     croak "Usage: isa(object-ref, type);\n" if not defined $type;
+
+     return $self->is_loaded($type) || UNIVERSAL::isa($self,$type);
+}
+
 
 
 =head2 handledby
@@ -474,7 +555,7 @@ This module is part of DA, Don Armstrong's Modules, and is released
 under the terms of the GPL version 2, or any later version. See the
 file README and COPYING for more information.
 
-Copyright 2003, 2004 by Don Armstrong <don@donarmstrong.com>
+Copyright 2003, 2005 by Don Armstrong <don@donarmstrong.com>
 
 =cut
 
