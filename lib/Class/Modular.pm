@@ -1,0 +1,486 @@
+# This module is part of DA, Don Armstrong's Modules, and is released
+# under the terms of the GPL version 2, or any later version. See the
+# file README and COPYING for more information.
+# Copyright 2003,2004 by Don Armstrong <don@donarmstrong.com>.
+# $Id: Modular.pm 26 2004-09-15 06:35:59Z don $
+
+package Class::Modular;
+
+=head1 NAME
+
+Class::Modular -- Modular class generation superclass
+
+=head1 SYNOPSIS
+
+     package Foo;
+
+     use base qw(Class::Modular);
+
+     sub new {
+	  my $class = shift;
+          my $self = bless {}, ref($class) || $class;
+	  $self->SUPER::_init(@_);
+	  return $self;
+     }
+
+     [...]
+
+     package Bar;
+
+     sub method_that_bar_provides{
+          print qq(Hello World!\n);
+     }
+
+     sub _methods($$){
+          return qw(method_that_bar_provides);
+     }
+
+     [...]
+
+     use Foo;
+
+     $foo = new Foo;
+     $foo->load('Bar');
+     $foo->method_that_bar_provides;
+
+
+=head1 DESCRIPTION
+
+Class::Modular is a superclass for generating modular classes, where
+methods can be added into the class from the perspective of the
+object, rather than the perspective of the class.
+
+That is, you can create a class which has a set of generic common
+functions. Less generic functions can be included or overridden
+without modifying the base classes. This allows for code to be more
+modular, and reduces code duplication.
+
+This module attempts to fill the middle ground between
+L<Class::Mutator> and true classless OOP, like L<Class::Classless>.
+
+=head1 FUNCTIONS
+
+=cut
+
+use strict;
+use vars qw($VERSION $DEBUG $REVISION);
+
+use Carp;
+
+use Storable qw(dclone); # Used for deep copying objects
+
+BEGIN{
+     $VERSION = q$0.02$;
+     ($REVISION) = q$LastChangedRevision: 26 $ =~ /\$LastChangedRevision:\s+([^\s+])/;
+     $DEBUG = 0 unless defined $DEBUG;
+}
+
+# This is the class_modular namespace, so we don't muck up the
+# subclass(es) by accident.
+
+my $cm = q(__class_modular);
+
+our $AUTOLOAD;
+
+=head2 new
+
+=head3 Usage
+
+     $obj = Foo::Bar->new();
+
+=head3 Function
+
+Creates a new Foo::Bar object
+
+Aditional arguments can be passed to this creator, and they are stored
+in $self->{creation_args} (and $self->{$cm}{creation_args} by
+_init. You can also override the new method in your subclass. It's
+just provided here for completeness.
+
+=cut
+
+sub new {
+     my ($class,@args) = @_;
+
+     # We shouldn't be called $me->new, but just in case
+     $class = ref($class) || $class;
+
+     my $self = {};
+     bless $self, $class;
+
+     $self->_init(@args);
+
+     return $self;
+}
+
+
+=head2 _init
+
+=head3 Usage
+
+     $self->_init(@args);
+
+=head3 Function
+
+Stores the arguments used at new so modules that are loaded later can
+read them from B<creation_args>
+
+You can also override this method, but if you do so, you should call
+Class::Modular::_init($self,@_) if you don't set creation_args.
+
+=cut
+
+sub _init {
+     my ($self,@creation_args) = @_;
+
+     my $creation_args = [@_];
+     $self->{creation_args} = $creation_args if not exists $self->{creation_args};
+
+     # Make another reference to this, so we can get it if a subclass
+     # overwrites it, or if it was already set for some reason
+     $self->{$cm}->{creation_args} = $creation_args;
+}
+
+
+=head2 load
+
+=head3 Usage
+
+     $db->load('FOO::Subclass');
+
+=head3 Function
+
+Loads the named subclass into this object if the named subclass has
+not been loaded.
+
+The options scalar is passed to $subclass::_methods when determining
+which methods should be added using _addmethods.
+
+The subclasses _init method is called right after methods are loaded.
+
+If debugging is enabled, will warn about loading already loaded
+subclasses.
+
+=cut
+
+
+sub load($$;$) {
+     my ($self,$subclass,$options) = @_;
+
+     $options ||= {};
+
+     # check to see if the subclass has already been loaded.
+
+     if (not defined $self->{$cm}{_subclasses}{$subclass}){
+	  eval {
+	       no strict 'refs';
+	       # Yeah, I don't care if calling an inherited AUTOLOAD
+	       # for a non method is deprecated. Bite me.
+	       no warnings 'deprecated';
+	       eval "require $subclass" or die $@;
+	       $self->_addmethods($subclass,&{"${subclass}::_methods"}($self,$options));
+	       &{"${subclass}::_init"}($self);
+	  };
+	  die $@ if $@ and $@ !~ /^Undefined function ${subclass}::_init at [^\n]*$/;
+	  $self->{$cm}{_subclasses}{$subclass} = {};
+     }
+     else {
+	  carp "Not reloading subclass $subclass" if $DEBUG;
+     }
+}
+
+=head2 _addmethods
+
+=head3 Usage
+
+     $self->_addmethods()
+
+=head3 Function
+
+Given an array of methods, adds the methods into the _methodhash
+calling table.
+
+Methods that have previously been overridden by override are _NOT_
+overridden again. This may need to be adjusted in load.
+
+=cut
+
+sub _addmethods($@) {
+     my ($self,$subclass,@methods) = @_;
+
+     # stick the method into the table
+     # DLA: Make with the munchies!
+
+     foreach my $method (@methods) {
+	  if (not $method =~ /^$subclass/) {
+	       $method = $subclass.'::'.$method;
+	  }
+	  my ($method_name) = $method =~ /\:*([^\:]+)\s*$/;
+	  if (exists $self->{$cm}{_methodhash}{$method_name}) {
+	       if ($self->{$cm}{_methodhash}{$method_name}{overridden}) {
+		    carp "Not overriding already overriden method $method_name\n" if $DEBUG;
+		    next;
+	       }
+	       carp "Overriding $method_name $self->{$cm}{_methodhash}{$method_name}{reference} with $method\n";
+	  }
+	  $self->{$cm}{_methodhash}{$method_name}{reference} = $method;
+	  $self->{$cm}{_methodhash}{$method_name}{subclass} = $subclass;
+     }
+
+}
+
+=head2 override
+
+=head3 Function
+
+     $obj->override('methodname', $code_ref)
+
+=head3 Returns
+
+TRUE on success, FALSE on failure.
+
+=head3 Function
+
+Allows you to override utility functions that are called internally to
+provide a different default function.
+
+It's superficially similar to _addmethods, which is called by load,
+but it deals with code references, and requires the method name to be
+known.
+
+Methods overridden here are _NOT_ overrideable in _addmethods. This
+may need to be changed.
+
+=cut
+
+sub override {
+     my ($self, $method_name, $function_reference) = @_;
+
+     $self->{$cm}{_methodhash}{$method_name}{reference} = $function_reference;
+     $self->{$cm}{_methodhash}{$method_name}{overridden} = 1;
+}
+
+=head2 clone
+
+=head3 Usage
+
+     my $clone  = $obj->clone
+
+=head3 Function
+
+Produces a clone of the object with duplicates of all data and/or new
+connections as appropriate.
+
+Calls _clone on all loaded subclasses.
+
+Warns if debugging is on for classes which don't have a _clone
+method.  Dies on other errors.
+
+=cut
+
+sub clone {
+     my ($self) = @_;
+
+     my $clone = {};
+     bless $clone, ref($self);
+
+     # copy data structures at this level
+     $clone->{$cm}{_methodhash} = dclone($self->{$cm}{_methodhash});
+     $clone->{$cm}{_subclasses} = dclone($self->{$cm}{_subclasses});
+
+     foreach my $subclass (keys %{$self->{$cm}{_subclasses}}) {
+	  # Find out if the subclass has a clone method.
+	  # If it does, call it, die on errors.
+	  my $function = UNIVERSAL::can($subclass, '_clone');
+	  eval {
+	       no strict 'refs';
+	       # No, I could care less that AUTOLOAD is
+	       # deprecated. Eat me.
+	       no warnings 'deprecated';
+	       &{"${subclass}::_clone"}($self,$clone);
+	  };
+	  if ($@) {
+	       # Die unless we've hit an undefined subroutine.
+	       if ($@ !~ /^Undefined function ${subclass}::_clone at [^\n]*$/){
+		    die "Failed while trying to clone: $@";
+	       }
+	       else {
+		    carp "No _clone method defined for $subclass" if $DEBUG;
+	       }
+	  }
+     }
+}
+
+=head2 can
+
+=head3 Usage
+
+     $obj->can('METHOD');
+     Class::Modular->can('METHOD');
+
+=head3 Function
+
+Replaces UNIVERSAL's can method so that handled methods are reported
+correctly. Calls UNIVERSAL::can in the places where we don't know
+anything it doesn't.
+
+=head3 Returns
+
+A coderef to the method if the method is supported, undef otherwise.
+
+=head3 Args
+
+Scalar Method Name
+
+=cut
+
+sub can{
+     my ($self,$method,$vars) = @_;
+
+     croak "Usage: can(object-ref, method, [vars]);\n" if not defined $method;
+
+     if (ref $self and exists $self->{$cm}{_methodhash}->{$method}) {
+	  # If the method is defined, return a reference to the
+	  # method.
+	  return $self->{$cm}{_methodhash}{$method}{reference};
+     }
+     else {
+	  # Otherwise, let UNIVERSAL::can deal with the method
+	  # appropriately.
+	  return UNIVERSAL::can($self,$method);
+     }
+}
+
+=head2 handledby
+
+=head3 Usage
+
+     $obj->handledby('methodname');
+     $obj->handledby('Class::Method::methodname');
+
+=head3 Function
+
+Returns the subclass that handles this method.
+
+=head3 Returns
+
+SCALAR subclass name
+
+=head3 Args
+
+SCALAR method name
+
+=cut
+
+sub handledby{
+     my ($self,$method_name) = @_;
+
+     $method_name =~ s/.*\://;
+
+     if (exists $self->{$cm}{_methodhash}{$method_name}) {
+	  return $self->{$cm}{_methodhash}{$method_name}{subclass};
+     }
+     return undef;
+}
+
+
+=head2 DESTROY
+
+=head3 Usage
+
+Called by perl.
+
+=head3 Function
+
+Calls all subclass _destroy methods.
+
+Subclasses need only implement a _destroy method if they have
+references that need to be uncircularized, or things that should be
+disconnected or closed.
+
+=cut
+
+sub DESTROY{
+     my $self = shift;
+     foreach my $subclass (keys %{$self->{$cm}{_subclasses}}) {
+	  # use eval to try and call the subclasses _destroy method.
+	  # Ignore no such function errors, but trap other types of
+	  # errors.
+	  eval {
+	       no strict 'refs';
+	       &{"${subclass}::_destroy"}($self);
+	  };
+	  if ($@) {
+	       if ($@ !~ /^Undefined function ${subclass}::_destroy at [^\n]*$/){
+		    die "Failed while trying to destroy: $@";
+	       }
+	       else {
+		    carp "No _destroy method defined for $subclass" if $DEBUG;
+	       }
+	  }
+     }
+}
+
+
+=head2 AUTOLOAD
+
+The AUTOLOAD function is responsible for calling child methods which
+have been installed into the current Class::Modular handle.
+
+Subclasses that have a new function as well as an AUTOLOAD function
+must call Class::Modular::AUTOLOAD and set $Class::Modular::AUTOLOAD
+
+     $Class::Modular::AUTOLOAD = $AUTOLOAD;
+     goto &Class::Modular::AUTOLOAD;
+
+=cut
+
+sub AUTOLOAD{
+     my $method = $AUTOLOAD;
+
+     $method =~ s/.*\://;
+
+     my ($self) = @_;
+
+     if (not ref($self)) {
+	 carp "Not a reference in AUTOLOAD.";
+	 return;
+     }
+
+     if (exists $self->{$cm}{_methodhash}{$method} and
+	 defined $self->{$cm}{_methodhash}{$method}{reference}) {
+	  eval {
+	       no strict 'refs';
+	       goto &{$self->{$cm}{_methodhash}{$method}{reference}};
+	  }
+     }
+     else {
+	  croak "Undefined function $AUTOLOAD";
+     }
+}
+
+1;
+
+
+__END__
+
+=head1 BUGS
+
+Because this module works through AUTOLOAD, utilities that use
+can($object) instead of $object->can() will fail to see routines that
+are actually there. Params::Validate, an excellent module, is
+currently one of these offenders.
+
+=head1 COPYRIGHT
+
+This module is part of DA, Don Armstrong's Modules, and is released
+under the terms of the GPL version 2, or any later version. See the
+file README and COPYING for more information.
+
+Copyright 2003, 2004 by Don Armstrong <don@donarmstrong.com>
+
+=cut
+
+
+
+

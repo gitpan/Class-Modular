@@ -1,0 +1,26 @@
+Source: libclass-modular-perl
+Section: perl
+Priority: optional
+Build-Depends: debhelper (>= 4.0.2)
+Build-Depends-Indep: perl (>= 5.8.0-7)
+Maintainer: Don Armstrong <don@archimedes.ucr.edu>
+Standards-Version: 3.6.1
+
+Package: libclass-modular-perl
+Architecture: all
+Depends: ${perl:Depends}, ${misc:Depends}, 
+Description:  Class::Modular -- Modular class generation superclass
+ Class::Modular is a superclass for generating modular classes, where
+ methods can be added into the class from the perspective of the
+ object, rather than the perspective of the class.
+ .
+ That is, you can create a class which has a set of generic common
+ functions. Less generic functions can be included or overridden
+ without modifying the base classes. This allows for code to be more
+ modular, and reduces code duplication.
+ .
+ It fills the middle ground between traditional class based OOP and
+ classless OOP. Class::Mutator and Sex are similar to
+ Class::Modular but less manic.
+ .
+ This description was automagically extracted from the module by dh-make-perl.
