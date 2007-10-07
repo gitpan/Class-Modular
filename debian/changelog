@@ -1,3 +1,9 @@
+libclass-modular-perl (0.5-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Don Armstrong <don@debian.org>  Sun, 07 Oct 2007 15:32:12 -0700
+
 libclass-modular-perl (0.4-1) unstable; urgency=low
 
   * New Upstream release

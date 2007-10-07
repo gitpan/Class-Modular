@@ -2,7 +2,7 @@
 # under the terms of the GPL version 2, or any later version. See the
 # file README and COPYING for more information.
 # Copyright 2003,2005 by Don Armstrong <don@donarmstrong.com>.
-# $Id: Modular.pm 42 2005-01-22 21:40:38Z don $
+# $Id: Modular.pm 45 2006-11-17 22:30:15Z don $
 
 package Class::Modular;
 
@@ -72,8 +72,8 @@ use Storable qw(dclone); # Used for deep copying objects
 use Safe; # Use Safe when we are dealing with coderefs
 
 BEGIN{
-     $VERSION = q$0.04$;
-     ($REVISION) = q$LastChangedRevision: 42 $ =~ /\$LastChangedRevision:\s+([^\s+])/;
+     $VERSION = q$0.05$;
+     ($REVISION) = q$LastChangedRevision: 45 $ =~ /\$LastChangedRevision:\s+([^\s+])/;
      $DEBUG = 0 unless defined $DEBUG;
      $USE_SAFE = 1 unless defined $USE_SAFE;
 }
@@ -465,9 +465,9 @@ sub AUTOLOAD{
 
      if (exists $self->{$cm}{_methodhash}{$method} and
 	 defined $self->{$cm}{_methodhash}{$method}{reference}) {
-	  eval {
-	       no strict 'refs';
-	       goto &{$self->{$cm}{_methodhash}{$method}{reference}};
+	  {
+	      my $method = \&{$self->{$cm}{_methodhash}{$method}{reference}};
+	      goto &$method;
 	  }
      }
      else {
